@@ -8,19 +8,28 @@ class HealthService {
   HealthService._internal();
 
   final Health _health = Health();
-  bool _isAuthorized = false;
+  bool _isConfigured = false;
 
-  /// 请求健康数据权限
-  Future<bool> requestPermissions() async {
-    // iOS 需要先请求位置权限（用于某些运动类型）
-    if (Platform.isIOS) {
-      await Permission.location.request();
+  /// 配置 Health 插件
+  Future<void> _configure() async {
+    if (_isConfigured) return;
+
+    try {
+      await _health.configure();
+      _isConfigured = true;
+    } catch (e) {
+      print('Health 配置失败: $e');
     }
+  }
+
+  /// 请求健康数据权限（必须由用户手势触发）
+  Future<bool> requestPermissions() async {
+    // 先配置 Health 插件
+    await _configure();
 
     // Android 需要请求活动识别权限
     if (Platform.isAndroid) {
       await Permission.activityRecognition.request();
-      await Permission.location.request();
     }
 
     // 定义需要读取的健康数据类型
@@ -32,36 +41,23 @@ class HealthService {
 
     final permissions = types.map((e) => HealthDataAccess.READ).toList();
 
-    // 检查是否已有权限
-    bool? hasPermissions = await _health.hasPermissions(
-      types,
-      permissions: permissions,
-    );
-
-    // hasPermissions 可能返回 null 或 false，需要重新请求
-    if (hasPermissions != true) {
-      try {
-        _isAuthorized = await _health.requestAuthorization(
-          types,
-          permissions: permissions,
-        );
-      } catch (e) {
-        print('健康权限请求失败: $e');
-        return false;
-      }
-    } else {
-      _isAuthorized = true;
+    try {
+      // 请求授权，iOS 会弹出 HealthKit 授权界面
+      final authorized = await _health.requestAuthorization(
+        types,
+        permissions: permissions,
+      );
+      print('健康权限请求结果: $authorized');
+      return authorized;
+    } catch (e) {
+      print('健康权限请求失败: $e');
+      return false;
     }
-
-    return _isAuthorized;
   }
 
   /// 获取今日步数
   Future<int> getTodaySteps() async {
-    if (!_isAuthorized) {
-      final granted = await requestPermissions();
-      if (!granted) return 0;
-    }
+    await _configure();
 
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day);
@@ -77,13 +73,9 @@ class HealthService {
 
   /// 获取昨晚睡眠时长（分钟）
   Future<int> getLastNightSleepMinutes() async {
-    if (!_isAuthorized) {
-      final granted = await requestPermissions();
-      if (!granted) return 0;
-    }
+    await _configure();
 
     final now = DateTime.now();
-    // 昨天 18:00 到今天 12:00 的范围（覆盖正常睡眠时间）
     final startTime = DateTime(now.year, now.month, now.day - 1, 18, 0);
     final endTime = DateTime(now.year, now.month, now.day, 12, 0);
 
@@ -94,10 +86,8 @@ class HealthService {
         endTime: endTime,
       );
 
-      // 去重
       final uniqueData = _health.removeDuplicates(sleepData);
 
-      // 计算总睡眠时间
       int totalMinutes = 0;
       for (final data in uniqueData) {
         final duration = data.dateTo.difference(data.dateFrom);

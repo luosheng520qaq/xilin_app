@@ -100,19 +100,65 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _initializeApp() async {
     setState(() => _isLoading = true);
 
+    // 启动时只检查权限状态，不主动请求（iOS 要求用户手势触发）
+    _syncInterval = await _storageService.getSyncInterval();
+    _records = await _storageService.getRecords();
+
+    // 检查是否已有权限（之前授权过的情况）
+    await _checkPermissionStatus();
+
+    setState(() => _isLoading = false);
+  }
+
+  /// 检查权限状态（不弹窗）
+  Future<void> _checkPermissionStatus() async {
+    try {
+      // 尝试获取数据来判断是否有权限
+      _todaySteps = await _healthService.getTodaySteps();
+      _sleepMinutes = await _healthService.getLastNightSleepMinutes();
+      _hasBackgroundLocation = await _locationService.hasBackgroundPermission();
+
+      // 如果能获取到数据，说明有权限
+      _hasPermission = true;
+    } catch (e) {
+      _hasPermission = false;
+    }
+  }
+
+  /// 用户点击授权按钮时调用（必须由用户手势触发）
+  Future<void> _requestPermissions() async {
+    setState(() => _isLoading = true);
+
+    // 先请求健康权限
     final healthPermission = await _healthService.requestPermissions();
+
+    // 再请求位置权限
     final locationPermission = await _locationService.requestPermissions();
+
     _hasPermission = healthPermission && locationPermission;
     _hasBackgroundLocation = await _locationService.hasBackgroundPermission();
 
-    _syncInterval = await _storageService.getSyncInterval();
-    await _loadData();
-
     if (_hasPermission) {
+      await _loadData();
       await _syncService.registerPeriodicSync();
     }
 
     setState(() => _isLoading = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_hasPermission ? '授权成功' : '授权失败，请在设置中开启权限'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          backgroundColor: _hasPermission
+              ? const Color(0xFF4CAF50)
+              : Colors.orange,
+        ),
+      );
+    }
   }
 
   Future<void> _loadData() async {
@@ -246,24 +292,68 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       },
       child: _GlassCard(
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.warning_rounded, color: Colors.orange),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.health_and_safety_rounded,
+                    color: Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '需要授权',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF37474F),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        '请授予健康和位置权限以使用完整功能',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF78909C),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 16),
-            const Expanded(
-              child: Text(
-                '请授予健康和位置权限以使用完整功能',
-                style: TextStyle(color: Color(0xFF37474F)),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _requestPermissions,
+                icon: const Icon(
+                  Icons.check_circle_outline,
+                  color: Colors.white,
+                ),
+                label: const Text(
+                  '点击授权',
+                  style: TextStyle(color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF42A5F5),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
               ),
             ),
-            TextButton(onPressed: _initializeApp, child: const Text('重试')),
           ],
         ),
       ),
