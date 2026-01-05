@@ -7,63 +7,85 @@ class HealthService {
   factory HealthService() => _instance;
   HealthService._internal();
 
+  // 创建 Health 实例
   final Health _health = Health();
   bool _isConfigured = false;
 
-  /// 配置 Health 插件
-  Future<void> _configure() async {
-    if (_isConfigured) return;
+  // 定义要获取的数据类型
+  static final List<HealthDataType> _types = [
+    HealthDataType.STEPS,
+    HealthDataType.SLEEP_ASLEEP,
+    HealthDataType.SLEEP_IN_BED,
+    HealthDataType.SLEEP_AWAKE,
+  ];
 
+  // 对应的权限（只读）
+  static final List<HealthDataAccess> _permissions = _types
+      .map((e) => HealthDataAccess.READ)
+      .toList();
+
+  /// 配置 Health 插件（必须在使用前调用）
+  Future<void> configure() async {
+    if (_isConfigured) return;
     try {
       await _health.configure();
       _isConfigured = true;
+      print('Health 插件配置成功');
     } catch (e) {
-      print('Health 配置失败: $e');
+      print('Health 插件配置失败: $e');
     }
   }
 
   /// 请求健康数据权限（必须由用户手势触发）
   Future<bool> requestPermissions() async {
-    // 先配置 Health 插件
-    await _configure();
+    // 先配置插件
+    await configure();
 
-    // Android 需要请求活动识别权限
+    // Android 需要先请求活动识别权限
     if (Platform.isAndroid) {
       await Permission.activityRecognition.request();
+      await Permission.location.request();
     }
 
-    // 定义需要读取的健康数据类型
-    final types = [
-      HealthDataType.STEPS,
-      HealthDataType.SLEEP_ASLEEP,
-      HealthDataType.SLEEP_IN_BED,
-    ];
-
-    final permissions = types.map((e) => HealthDataAccess.READ).toList();
-
     try {
-      // 请求授权，iOS 会弹出 HealthKit 授权界面
-      final authorized = await _health.requestAuthorization(
-        types,
-        permissions: permissions,
+      // 请求 HealthKit/Health Connect 授权
+      // iOS 会弹出系统授权界面
+      bool authorized = await _health.requestAuthorization(
+        _types,
+        permissions: _permissions,
       );
       print('健康权限请求结果: $authorized');
       return authorized;
     } catch (e) {
-      print('健康权限请求失败: $e');
+      print('健康权限请求异常: $e');
+      return false;
+    }
+  }
+
+  /// 检查是否有权限
+  Future<bool> hasPermissions() async {
+    await configure();
+    try {
+      bool? has = await _health.hasPermissions(
+        _types,
+        permissions: _permissions,
+      );
+      return has ?? false;
+    } catch (e) {
       return false;
     }
   }
 
   /// 获取今日步数
   Future<int> getTodaySteps() async {
-    await _configure();
+    await configure();
 
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day);
 
     try {
-      final steps = await _health.getTotalStepsInInterval(midnight, now);
+      int? steps = await _health.getTotalStepsInInterval(midnight, now);
+      print('今日步数: $steps');
       return steps ?? 0;
     } catch (e) {
       print('获取步数失败: $e');
@@ -73,31 +95,67 @@ class HealthService {
 
   /// 获取昨晚睡眠时长（分钟）
   Future<int> getLastNightSleepMinutes() async {
-    await _configure();
+    await configure();
 
     final now = DateTime.now();
+    // 昨天 18:00 到今天 12:00（覆盖正常睡眠时间）
     final startTime = DateTime(now.year, now.month, now.day - 1, 18, 0);
     final endTime = DateTime(now.year, now.month, now.day, 12, 0);
 
     try {
-      final sleepData = await _health.getHealthDataFromTypes(
+      // 获取睡眠数据
+      List<HealthDataPoint> sleepData = await _health.getHealthDataFromTypes(
         types: [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_IN_BED],
         startTime: startTime,
         endTime: endTime,
       );
 
-      final uniqueData = _health.removeDuplicates(sleepData);
+      // 去重
+      sleepData = _health.removeDuplicates(sleepData);
 
+      // 计算总睡眠时间
       int totalMinutes = 0;
-      for (final data in uniqueData) {
+      for (final data in sleepData) {
         final duration = data.dateTo.difference(data.dateFrom);
         totalMinutes += duration.inMinutes;
       }
 
+      print('睡眠时长: $totalMinutes 分钟');
       return totalMinutes;
     } catch (e) {
       print('获取睡眠数据失败: $e');
       return 0;
+    }
+  }
+
+  /// 获取健康数据列表（用于调试）
+  Future<List<HealthDataPoint>> getHealthData() async {
+    await configure();
+
+    final now = DateTime.now();
+    final yesterday = now.subtract(const Duration(days: 1));
+
+    try {
+      List<HealthDataPoint> healthData = await _health.getHealthDataFromTypes(
+        types: _types,
+        startTime: yesterday,
+        endTime: now,
+      );
+
+      // 去重
+      healthData = _health.removeDuplicates(healthData);
+
+      print('获取到 ${healthData.length} 条健康数据');
+      for (var data in healthData) {
+        print(
+          '  ${data.type}: ${data.value} (${data.dateFrom} - ${data.dateTo})',
+        );
+      }
+
+      return healthData;
+    } catch (e) {
+      print('获取健康数据失败: $e');
+      return [];
     }
   }
 
