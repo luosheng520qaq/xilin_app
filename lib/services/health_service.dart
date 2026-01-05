@@ -12,11 +12,15 @@ class HealthService {
   bool _isConfigured = false;
 
   // 定义要获取的数据类型
+  // iOS 睡眠类型: SLEEP_IN_BED, SLEEP_ASLEEP, SLEEP_AWAKE, SLEEP_DEEP, SLEEP_LIGHT, SLEEP_REM
   static final List<HealthDataType> _types = [
     HealthDataType.STEPS,
-    HealthDataType.SLEEP_ASLEEP,
     HealthDataType.SLEEP_IN_BED,
+    HealthDataType.SLEEP_ASLEEP,
     HealthDataType.SLEEP_AWAKE,
+    HealthDataType.SLEEP_DEEP,
+    HealthDataType.SLEEP_LIGHT,
+    HealthDataType.SLEEP_REM,
   ];
 
   // 对应的权限（只读）
@@ -103,9 +107,15 @@ class HealthService {
     final endTime = DateTime(now.year, now.month, now.day, 12, 0);
 
     try {
-      // 获取睡眠数据
+      // 获取所有睡眠相关数据类型
       List<HealthDataPoint> sleepData = await _health.getHealthDataFromTypes(
-        types: [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_IN_BED],
+        types: [
+          HealthDataType.SLEEP_IN_BED,
+          HealthDataType.SLEEP_ASLEEP,
+          HealthDataType.SLEEP_DEEP,
+          HealthDataType.SLEEP_LIGHT,
+          HealthDataType.SLEEP_REM,
+        ],
         startTime: startTime,
         endTime: endTime,
       );
@@ -113,11 +123,36 @@ class HealthService {
       // 去重
       sleepData = _health.removeDuplicates(sleepData);
 
-      // 计算总睡眠时间
+      print('获取到 ${sleepData.length} 条睡眠数据');
+
+      // 优先使用 SLEEP_IN_BED（总睡眠时间），如果没有则累加其他类型
       int totalMinutes = 0;
-      for (final data in sleepData) {
-        final duration = data.dateTo.difference(data.dateFrom);
-        totalMinutes += duration.inMinutes;
+
+      // 先找 SLEEP_IN_BED 数据
+      final inBedData = sleepData
+          .where((d) => d.type == HealthDataType.SLEEP_IN_BED)
+          .toList();
+      if (inBedData.isNotEmpty) {
+        for (final data in inBedData) {
+          final duration = data.dateTo.difference(data.dateFrom);
+          totalMinutes += duration.inMinutes;
+        }
+      } else {
+        // 没有 SLEEP_IN_BED，累加实际睡眠阶段
+        final actualSleepData = sleepData
+            .where(
+              (d) =>
+                  d.type == HealthDataType.SLEEP_ASLEEP ||
+                  d.type == HealthDataType.SLEEP_DEEP ||
+                  d.type == HealthDataType.SLEEP_LIGHT ||
+                  d.type == HealthDataType.SLEEP_REM,
+            )
+            .toList();
+
+        for (final data in actualSleepData) {
+          final duration = data.dateTo.difference(data.dateFrom);
+          totalMinutes += duration.inMinutes;
+        }
       }
 
       print('睡眠时长: $totalMinutes 分钟');

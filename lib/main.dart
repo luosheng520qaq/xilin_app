@@ -192,6 +192,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) => _IntervalBottomSheet(
         currentInterval: _syncInterval,
         onSelect: (minutes) async {
@@ -831,8 +832,16 @@ class _HistoryItemState extends State<_HistoryItem>
     super.dispose();
   }
 
+  String _formatCoordinate(double? lat, double? lng) {
+    if (lat == null || lng == null) return '';
+    return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasLocation =
+        widget.record.latitude != null && widget.record.longitude != null;
+
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
@@ -845,59 +854,90 @@ class _HistoryItemState extends State<_HistoryItem>
         padding: const EdgeInsets.only(bottom: 12),
         child: _GlassCard(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF90CAF9), Color(0xFF64B5F6)],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.history_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      DateFormat(
-                        'MM月dd日 HH:mm',
-                      ).format(widget.record.timestamp),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                        color: Color(0xFF37474F),
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF90CAF9), Color(0xFF64B5F6)],
                       ),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '步数: ${widget.record.steps} · 睡眠: ${widget.healthService.formatSleepDuration(widget.record.sleepMinutes)}',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    child: const Icon(
+                      Icons.history_rounded,
+                      color: Colors.white,
+                      size: 22,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          DateFormat(
+                            'MM月dd日 HH:mm',
+                          ).format(widget.record.timestamp),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                            color: Color(0xFF37474F),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '步数: ${widget.record.steps} · 睡眠: ${widget.healthService.formatSleepDuration(widget.record.sleepMinutes)}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              if (widget.record.latitude != null)
+              // GPS 坐标显示
+              if (hasLocation) ...[
+                const SizedBox(height: 12),
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF4CAF50).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.location_on_rounded,
-                    size: 18,
-                    color: Color(0xFF4CAF50),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.location_on_rounded,
+                        size: 16,
+                        color: Color(0xFF4CAF50),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _formatCoordinate(
+                          widget.record.latitude,
+                          widget.record.longitude,
+                        ),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF4CAF50),
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ],
             ],
           ),
         ),
@@ -962,7 +1002,7 @@ class _LoadingView extends StatelessWidget {
 }
 
 // 同步间隔选择底部弹窗
-class _IntervalBottomSheet extends StatelessWidget {
+class _IntervalBottomSheet extends StatefulWidget {
   final int currentInterval;
   final Function(int) onSelect;
 
@@ -970,6 +1010,41 @@ class _IntervalBottomSheet extends StatelessWidget {
     required this.currentInterval,
     required this.onSelect,
   });
+
+  @override
+  State<_IntervalBottomSheet> createState() => _IntervalBottomSheetState();
+}
+
+class _IntervalBottomSheetState extends State<_IntervalBottomSheet> {
+  late TextEditingController _controller;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.currentInterval.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onSubmit() {
+    final value = int.tryParse(_controller.text);
+    if (value == null || value < 1) {
+      setState(() => _errorText = '请输入大于 0 的数字');
+      return;
+    }
+    if (value > 1440) {
+      setState(() => _errorText = '最大不能超过 1440 分钟（24小时）');
+      return;
+    }
+    widget.onSelect(value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -982,90 +1057,140 @@ class _IntervalBottomSheet extends StatelessWidget {
             color: Colors.white.withOpacity(0.9),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                '设置同步间隔',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1565C0),
-                ),
-              ),
-              const SizedBox(height: 20),
-              ...[15, 30, 60, 120, 240].map((minutes) {
-                final isSelected = currentInterval == minutes;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 6,
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => onSelect(minutes),
-                      borderRadius: BorderRadius.circular(16),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 16,
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  '设置同步间隔',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1565C0),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '输入自动同步的时间间隔（分钟）',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 24),
+                // 自定义输入框
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: TextField(
+                    controller: _controller,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1565C0),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '60',
+                      hintStyle: TextStyle(color: Colors.grey[300]),
+                      errorText: _errorText,
+                      suffixText: '分钟',
+                      suffixStyle: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF42A5F5),
+                          width: 2,
                         ),
-                        decoration: BoxDecoration(
-                          gradient: isSelected
-                              ? const LinearGradient(
-                                  colors: [
-                                    Color(0xFF42A5F5),
-                                    Color(0xFF1E88E5),
-                                  ],
-                                )
-                              : null,
-                          color: isSelected ? null : Colors.grey[100],
+                      ),
+                      errorBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(
+                          color: Colors.red,
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (_errorText != null) {
+                        setState(() => _errorText = null);
+                      }
+                    },
+                    onSubmitted: (_) => _onSubmit(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 快捷选项
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [15, 30, 60, 120, 240].map((minutes) {
+                      return ActionChip(
+                        label: Text('$minutes分钟'),
+                        backgroundColor: Colors.grey[100],
+                        labelStyle: TextStyle(color: Colors.grey[700]),
+                        onPressed: () {
+                          _controller.text = minutes.toString();
+                          setState(() => _errorText = null);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // 确认按钮
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _onSubmit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF42A5F5),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isSelected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.circle_outlined,
-                              color: isSelected
-                                  ? Colors.white
-                                  : Colors.grey[400],
-                            ),
-                            const SizedBox(width: 16),
-                            Text(
-                              '$minutes 分钟',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                                color: isSelected
-                                    ? Colors.white
-                                    : Colors.grey[700],
-                              ),
-                            ),
-                          ],
+                      ),
+                      child: const Text(
+                        '确认',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
-                );
-              }),
-              SizedBox(height: MediaQuery.of(context).padding.bottom + 20),
-            ],
+                ),
+                SizedBox(height: MediaQuery.of(context).padding.bottom + 20),
+              ],
+            ),
           ),
         ),
       ),
