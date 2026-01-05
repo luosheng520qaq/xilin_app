@@ -54,7 +54,12 @@ class SyncService {
     try {
       final steps = await _healthService.getTodaySteps();
       final sleepMinutes = await _healthService.getLastNightSleepMinutes();
-      final position = await _locationService.getCurrentPosition();
+
+      // 确保先请求位置权限
+      final hasLocationPermission = await _locationService.requestPermissions();
+      final position = hasLocationPermission
+          ? await _locationService.getCurrentPosition()
+          : null;
 
       final record = HealthRecord(
         timestamp: DateTime.now(),

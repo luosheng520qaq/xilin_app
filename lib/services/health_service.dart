@@ -12,9 +12,15 @@ class HealthService {
 
   /// 请求健康数据权限
   Future<bool> requestPermissions() async {
-    // 请求活动识别权限 (Android)
+    // iOS 需要先请求位置权限（用于某些运动类型）
+    if (Platform.isIOS) {
+      await Permission.location.request();
+    }
+
+    // Android 需要请求活动识别权限
     if (Platform.isAndroid) {
       await Permission.activityRecognition.request();
+      await Permission.location.request();
     }
 
     // 定义需要读取的健康数据类型
@@ -24,27 +30,37 @@ class HealthService {
       HealthDataType.SLEEP_IN_BED,
     ];
 
-    // 请求 HealthKit/Health Connect 权限
-    try {
-      _isAuthorized = await _health.requestAuthorization(
-        types,
-        permissions: [
-          HealthDataAccess.READ,
-          HealthDataAccess.READ,
-          HealthDataAccess.READ,
-        ],
-      );
-      return _isAuthorized;
-    } catch (e) {
-      print('健康权限请求失败: $e');
-      return false;
+    final permissions = types.map((e) => HealthDataAccess.READ).toList();
+
+    // 检查是否已有权限
+    bool? hasPermissions = await _health.hasPermissions(
+      types,
+      permissions: permissions,
+    );
+
+    // hasPermissions 可能返回 null 或 false，需要重新请求
+    if (hasPermissions != true) {
+      try {
+        _isAuthorized = await _health.requestAuthorization(
+          types,
+          permissions: permissions,
+        );
+      } catch (e) {
+        print('健康权限请求失败: $e');
+        return false;
+      }
+    } else {
+      _isAuthorized = true;
     }
+
+    return _isAuthorized;
   }
 
   /// 获取今日步数
   Future<int> getTodaySteps() async {
     if (!_isAuthorized) {
-      await requestPermissions();
+      final granted = await requestPermissions();
+      if (!granted) return 0;
     }
 
     final now = DateTime.now();
@@ -62,7 +78,8 @@ class HealthService {
   /// 获取昨晚睡眠时长（分钟）
   Future<int> getLastNightSleepMinutes() async {
     if (!_isAuthorized) {
-      await requestPermissions();
+      final granted = await requestPermissions();
+      if (!granted) return 0;
     }
 
     final now = DateTime.now();
@@ -72,24 +89,17 @@ class HealthService {
 
     try {
       final sleepData = await _health.getHealthDataFromTypes(
-        types: [
-          HealthDataType.SLEEP_ASLEEP,
-          HealthDataType.SLEEP_IN_BED,
-        ],
+        types: [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_IN_BED],
         startTime: startTime,
         endTime: endTime,
       );
 
+      // 去重
+      final uniqueData = _health.removeDuplicates(sleepData);
+
       // 计算总睡眠时间
       int totalMinutes = 0;
-      final processedIntervals = <String>{};
-
-      for (final data in sleepData) {
-        // 避免重复计算相同时间段
-        final key = '${data.dateFrom}-${data.dateTo}';
-        if (processedIntervals.contains(key)) continue;
-        processedIntervals.add(key);
-
+      for (final data in uniqueData) {
         final duration = data.dateTo.difference(data.dateFrom);
         totalMinutes += duration.inMinutes;
       }
