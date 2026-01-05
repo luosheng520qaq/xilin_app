@@ -45,6 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- HealthKit Required -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>healthkit</string>
+	</array>
 	<!-- HealthKit 权限 -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>用于读取您的步数和睡眠时间</string>

@@ -11,16 +11,11 @@ class HealthService {
   final Health _health = Health();
   bool _isConfigured = false;
 
-  // 定义要获取的数据类型
-  // iOS 睡眠类型: SLEEP_IN_BED, SLEEP_ASLEEP, SLEEP_AWAKE, SLEEP_DEEP, SLEEP_LIGHT, SLEEP_REM
+  // 定义要获取的数据类型 - 只请求步数和睡眠
   static final List<HealthDataType> _types = [
     HealthDataType.STEPS,
     HealthDataType.SLEEP_IN_BED,
     HealthDataType.SLEEP_ASLEEP,
-    HealthDataType.SLEEP_AWAKE,
-    HealthDataType.SLEEP_DEEP,
-    HealthDataType.SLEEP_LIGHT,
-    HealthDataType.SLEEP_REM,
   ];
 
   // 对应的权限（只读）
@@ -29,53 +24,73 @@ class HealthService {
       .toList();
 
   /// 配置 Health 插件（必须在使用前调用）
-  Future<void> configure() async {
-    if (_isConfigured) return;
+  Future<bool> configure() async {
+    if (_isConfigured) return true;
     try {
       await _health.configure();
       _isConfigured = true;
-      print('Health 插件配置成功');
-    } catch (e) {
-      print('Health 插件配置失败: $e');
+      print('HealthService: configure 成功');
+      return true;
+    } catch (e, stack) {
+      print('HealthService: configure 失败: $e');
+      print('HealthService: stack: $stack');
+      return false;
     }
   }
 
   /// 请求健康数据权限（必须由用户手势触发）
   Future<bool> requestPermissions() async {
+    print('HealthService: 开始请求权限...');
+
     // 先配置插件
-    await configure();
+    final configured = await configure();
+    if (!configured) {
+      print('HealthService: configure 失败，无法请求权限');
+      return false;
+    }
 
     // Android 需要先请求活动识别权限
     if (Platform.isAndroid) {
+      print('HealthService: Android - 请求活动识别权限');
       await Permission.activityRecognition.request();
       await Permission.location.request();
     }
 
     try {
+      print('HealthService: 调用 requestAuthorization，类型: $_types');
+
       // 请求 HealthKit/Health Connect 授权
-      // iOS 会弹出系统授权界面
       bool authorized = await _health.requestAuthorization(
         _types,
         permissions: _permissions,
       );
-      print('健康权限请求结果: $authorized');
+
+      print('HealthService: requestAuthorization 返回: $authorized');
       return authorized;
-    } catch (e) {
-      print('健康权限请求异常: $e');
+    } catch (e, stack) {
+      print('HealthService: requestAuthorization 异常: $e');
+      print('HealthService: stack: $stack');
       return false;
     }
   }
 
   /// 检查是否有权限
+  /// 注意：iOS 上无法准确检查权限状态，会返回 null
+  /// 所以默认返回 false，让用户手动点击授权
   Future<bool> hasPermissions() async {
-    await configure();
+    final configured = await configure();
+    if (!configured) return false;
+
     try {
       bool? has = await _health.hasPermissions(
         _types,
         permissions: _permissions,
       );
+      print('HealthService: hasPermissions 返回: $has');
+      // iOS 返回 null，我们返回 false 让用户手动授权
       return has ?? false;
     } catch (e) {
+      print('HealthService: hasPermissions 异常: $e');
       return false;
     }
   }

@@ -113,14 +113,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   /// 检查权限状态（不弹窗）
   Future<void> _checkPermissionStatus() async {
     try {
-      // 尝试获取数据来判断是否有权限
-      _todaySteps = await _healthService.getTodaySteps();
-      _sleepMinutes = await _healthService.getLastNightSleepMinutes();
+      // 使用 hasPermissions 检查是否已授权
+      _hasPermission = await _healthService.hasPermissions();
       _hasBackgroundLocation = await _locationService.hasBackgroundPermission();
 
-      // 如果能获取到数据，说明有权限
-      _hasPermission = true;
+      // 如果有权限，尝试加载数据
+      if (_hasPermission) {
+        _todaySteps = await _healthService.getTodaySteps();
+        _sleepMinutes = await _healthService.getLastNightSleepMinutes();
+      }
     } catch (e) {
+      print('检查权限状态失败: $e');
       _hasPermission = false;
     }
   }
@@ -195,13 +198,17 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       isScrollControlled: true,
       builder: (ctx) => _IntervalBottomSheet(
         currentInterval: _syncInterval,
-        onSelect: (minutes) async {
-          await _syncService.updateSyncInterval(minutes);
-          setState(() => _syncInterval = minutes);
+        onSelect: (minutes) {
           Navigator.pop(ctx);
+          _updateInterval(minutes);
         },
       ),
     );
+  }
+
+  Future<void> _updateInterval(int minutes) async {
+    await _syncService.updateSyncInterval(minutes);
+    setState(() => _syncInterval = minutes);
   }
 
   @override
@@ -242,7 +249,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       elevation: 0,
       flexibleSpace: FlexibleSpaceBar(
         title: const Text(
-          '健康追踪',
+          '健康追踪 v0.9',
           style: TextStyle(
             color: Color(0xFF1565C0),
             fontWeight: FontWeight.w600,
@@ -1043,6 +1050,8 @@ class _IntervalBottomSheetState extends State<_IntervalBottomSheet> {
       setState(() => _errorText = '最大不能超过 1440 分钟（24小时）');
       return;
     }
+    // 先清除错误，再调用回调
+    setState(() => _errorText = null);
     widget.onSelect(value);
   }
 
